@@ -1,0 +1,32 @@
+# 解包 / 反编译产物（体积大，可由自带 APK 现场复现，不入库）
+raw/
+jadx_out/
+apktool_out/
+
+# APK / dex / 二进制工具
+*.apk
+*.dex
+frida-server*
+fs.xz
+*.whl
+
+# 静态分析临时 dump
+ui.xml
+uia.xml
+u*.xml
+c1.xml
+p2.xml
+p3.xml
+p4.xml
+q1.xml
+q2.xml
+r1.xml
+s1.xml
+s4.xml
+s5.xml
+
+# 运行期产物
+*.log
+*.state.json
+__pycache__/
+.pool-*.tmp

@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PairVPN 1.8.51 逆向 demo · P2P 配对协议</title>
+<style>
+  :root{--bg:#0d1117;--card:#161b22;--line:#30363d;--fg:#e6edf3;--dim:#8b949e;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--acc:#58a6ff}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.6 -apple-system,"Segoe UI",Roboto,"Microsoft YaHei",sans-serif}
+  header{padding:20px 24px;border-bottom:1px solid var(--line)}
+  h1{margin:0 0 6px;font-size:20px}
+  .sub{color:var(--dim);font-size:13px}
+  main{max-width:1080px;margin:0 auto;padding:20px 24px 60px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:16px 0}
+  .card h2{margin:0 0 4px;font-size:15px}
+  .card p.hint{margin:0 0 12px;color:var(--dim);font-size:12.5px}
+  button{background:#21262d;color:var(--fg);border:1px solid var(--line);border-radius:7px;padding:7px 14px;cursor:pointer;font-size:13px}
+  button:hover{border-color:var(--acc)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  input{background:#0d1117;border:1px solid var(--line);color:var(--fg);border-radius:7px;padding:6px 9px;font:13px ui-monospace,monospace;width:110px}
+  label{color:var(--dim);font-size:12.5px;margin-right:6px}
+  pre{background:#0d1117;border:1px solid var(--line);border-radius:8px;padding:10px 12px;overflow:auto;font:12px/1.5 ui-monospace,Consolas,monospace;margin:10px 0 0;max-height:280px}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
+  th{color:var(--dim);font-weight:500;font-size:12px}
+  code{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;color:var(--acc)}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;border:1px solid var(--line)}
+  .pill.ok{color:var(--ok);border-color:rgba(63,185,80,.4)}
+  .pill.bad{color:var(--bad);border-color:rgba(248,81,73,.4)}
+  .mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;word-break:break-all}
+  .verdict{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
+  .big{font-size:28px;font-weight:600;color:var(--warn)}
+</style>
+</head>
+<body>
+<header>
+  <h1>PairVPN <span style="color:var(--dim);font-weight:400">com.pairvpn v1.8.51 b1851</span></h1>
+  <div class="sub">逆向 demo —— 这是一个「设备对设备」的 P2P VPN，不是商业机场。本页演示它的地址服务器协议与配对流程。</div>
+</header>
+
+<main>
+  <div class="card">
+    <h2>结论</h2>
+    <div class="verdict">
+      <span class="big">0</span>
+      <span>个可收割出口节点</span>
+      <span class="pill bad">不可入代理池</span>
+    </div>
+    <p class="hint" style="margin:10px 0 0">
+      客户端只能连「你自己配对的另一台设备」，服务端跑在你自己的手机/电脑上。
+      地址服务器 <code>pairv.net</code> 只做会话发放，不下发任何服务器列表。详见 <code>POOL_VERDICT.md</code>。
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>1 · 真实地址服务器探活</h2>
+    <p class="hint">后端只读 GET <code>https://pairv.net/dev/&lt;action&gt;?&lt;params&gt;</code>，三个 action 均为 native 层字符串交叉引用确认。</p>
+    <div class="row">
+      <label>pairing code</label>
+      <input id="probeCode" value="123456">
+      <button id="btnProbe">探活</button>
+    </div>
+    <table id="probeTable"><thead><tr><th>action</th><th>状态</th><th>延迟</th><th>响应长度</th><th>令牌样例</th></tr></thead><tbody></tbody></table>
+    <pre id="probeRaw">（未运行）</pre>
+  </div>
+
+  <div class="card">
+    <h2>2 · 配对流程复现（本地 mock）</h2>
+    <p class="hint">
+      线上语义：服务端注册 <code>server_pairing?iceId&amp;pairCode&amp;flags&amp;svrName&amp;hwId</code> 占住 6 位码；
+      客户端用 <code>client_pairing?...&amp;code=</code> 换取会话令牌；令牌是 64 字符、字符表含 <code>.</code> 的不透明串。
+    </p>
+    <div class="row">
+      <button id="btnNewSvr">① 生成服务端配对码</button>
+      <button id="btnCli">② 客户端凭码取会话</button>
+      <button id="btnCliBad">③ 用未注册码取会话</button>
+    </div>
+    <pre id="pairLog">（未运行）</pre>
+  </div>
+
+  <div class="card">
+    <h2>3 · 第一轮压测</h2>
+    <p class="hint">直接打真实地址服务器（低并发小样本，只读）。压的是「会话发放」这一层，不是节点吞吐 —— 因为没有节点。</p>
+    <div class="row">
+      <label>n</label><input id="benchN" value="12">
+      <label>并发</label><input id="benchC" value="4">
+      <button id="btnBench">开始</button>
+    </div>
+    <pre id="benchOut">（未运行）</pre>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const fmt = (o) => JSON.stringify(o, null, 2);
+
+async function post(url, body) {
+  const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
+  return r.json();
+}
+
+function pill(ok) {
+  return `<span class="pill ${ok ? 'ok' : 'bad'}">${ok ? 'OK' : 'FAIL'}</span>`;
+}
+
+$('btnProbe').onclick = async () => {
+  const btn = $('btnProbe'); btn.disabled = true; btn.textContent = '探测中…';
+  try {
+    const d = await post('/api/probe', {code: $('probeCode').value});
+    const tb = $('probeTable').querySelector('tbody'); tb.innerHTML = '';
+    for (const [action, r] of Object.entries(d.results)) {
+      tb.insertAdjacentHTML('beforeend',
+        `<tr><td><code>${action}</code></td><td>${pill(r.ok)} <span style="color:var(--dim)">${r.status || r.err || ''}</span></td>` +
+        `<td>${r.ms} ms</td><td>${r.len ?? '-'}</td><td class="mono">${(r.token || '').slice(0, 32)}…</td></tr>`);
+    }
+    $('probeRaw').textContent = fmt(d);
+  } finally { btn.disabled = false; btn.textContent = '探活'; }
+};
+
+let currentCode = null;
+$('btnNewSvr').onclick = async () => {
+  const d = await post('/api/pair/new', {});
+  currentCode = d.pairCode;
+  $('pairLog').textContent = fmt({step: '服务端注册', ...d}) +
+    `\n\n→ 等价线上请求:\nGET https://pairv.net/dev/server_pairing?iceId=..&pairCode=${d.pairCode}&flags=1&svrName=${d.svrName}&hwId=..`;
+};
+
+$('btnCli').onclick = async () => {
+  if (!currentCode) { $('pairLog').textContent = '先点 ① 生成配对码'; return; }
+  const d = await post('/api/pair/client', {code: currentCode});
+  $('pairLog').textContent = fmt({step: '客户端凭码取会话', ...d}) +
+    `\n\n→ 令牌长度 ${d.token.length}，与线上实测 64 一致：${d.token.length === 64 ? '✔' : '✘'}`;
+};
+
+$('btnCliBad').onclick = async () => {
+  const d = await post('/api/pair/client', {code: '000000'});
+  $('pairLog').textContent = fmt({step: '未注册码（线上行为）', ...d}) +
+    `\n\n→ 令牌长度 ${d.token.length}，注册状态 ${d.registered}：线上实测未注册的 code 不报错，` +
+    '照样返回 64 字符随机令牌，靠后续握手失败来暴露。';
+};
+
+$('btnBench').onclick = async () => {
+  const btn = $('btnBench'); btn.disabled = true; btn.textContent = '压测中…';
+  $('benchOut').textContent = '运行中…';
+  try {
+    const d = await post('/api/bench', {n: +$('benchN').value, c: +$('benchC').value});
+    $('benchOut').textContent = fmt(d);
+  } finally { btn.disabled = false; btn.textContent = '开始'; }
+};
+</script>
+</body>
+</html>
